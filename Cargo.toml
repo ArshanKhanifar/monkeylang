@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "lexer",
+    "repl",
+    "token",
+]
+
+
