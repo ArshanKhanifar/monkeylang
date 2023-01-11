@@ -4,7 +4,8 @@ members = [
     "repl",
     "token",
     "ast",
-    "parser"
+    "parser",
+    "playground"
 ]
 
 

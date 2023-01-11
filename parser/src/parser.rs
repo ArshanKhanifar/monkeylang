@@ -1,8 +1,6 @@
-use std::any::Any;
-use std::mem;
-use std::os::macos::raw::stat;
-
-use monkey_ast::ast::{Expression, Identifier, LetStatement, Node, Program, Statement};
+use monkey_ast::ast::Expression::EMPTY;
+use monkey_ast::ast::Statement::LetStatement;
+use monkey_ast::ast::{Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::{Token, TokenType};
 
@@ -30,7 +28,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.peek_token = Some(self.l.next_token());
     }
 
-    fn parse_statement(&mut self) -> Option<Box<dyn Statement + 'b>> {
+    fn parse_statement(&mut self) -> Option<Statement<'b>> {
         match self.curr_token.as_ref().unwrap().token_type {
             TokenType::LET => self.parse_let_statement(),
             _ => None,
@@ -50,17 +48,11 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.errors.push(msg);
     }
 
-    fn parse_let_statement(&mut self) -> Option<Box<dyn Statement + 'b>> {
-        let statement_token = self.curr_token.take().unwrap();
+    fn parse_let_statement(&mut self) -> Option<Statement<'b>> {
         if !self.expect_peek(TokenType::IDENT) {
             return None;
         }
         let id_token = self.curr_token.take().unwrap();
-        let value = id_token.literal;
-        let name = Identifier {
-            token: id_token,
-            value,
-        };
         if !self.expect_peek(TokenType::ASSIGN) {
             return None;
         }
@@ -68,11 +60,11 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         while !self.curr_token_is(TokenType::SEMICOLON) {
             self.next_token();
         }
-        return Some(Box::new(LetStatement {
-            token: statement_token,
-            name,
-            value: None,
-        }));
+
+        return Some(LetStatement {
+            identifier: id_token,
+            expression: EMPTY,
+        });
     }
 
     fn curr_token_is(&self, t: TokenType) -> bool {
@@ -92,19 +84,6 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         }
     }
 
-    fn empty(&'_ mut self) -> Vec<Box<dyn Expression>> {
-        Vec::new()
-    }
-
-    fn something_imut(&self) -> bool {
-        self.curr_token.as_ref().unwrap().token_type == TokenType::ASSIGN
-    }
-
-    fn something(&'a mut self) {
-        self.something_imut();
-        self.empty();
-    }
-
     fn parse_program(&mut self) -> Program<'b> {
         let mut program = Program {
             statements: Vec::new(),
@@ -122,11 +101,8 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
 #[cfg(test)]
 mod tests {
     use std::any::Any;
-    use std::cell::RefCell;
+    use std::mem::transmute;
     use std::os::macos::raw::stat;
-    use std::rc::Rc;
-
-    use monkey_ast::ast::{LetStatement, Node, Statement};
 
     use super::*;
 
@@ -139,6 +115,7 @@ let foobar = 838383;";
         let mut l = Lexer::new(input);
         let mut p = Parser::new(&mut l);
         let program = p.parse_program();
+        check_parser_errors(&p);
 
         if program.statements.len() != 3 {
             panic!(
@@ -148,13 +125,27 @@ let foobar = 838383;";
         }
         let tests = ["x", "y", "foobar"];
         for (i, expected_identifier) in tests.iter().enumerate() {
-            let statement = program.statements.get(i).unwrap();
-            assert_eq!(statement.token_literal(), "let");
-            let statement = (statement as &dyn Any).downcast_ref::<LetStatement>();
+            let mut statement = program.statements.get(i);
             assert!(statement.is_some());
             let statement = statement.unwrap();
-            assert_eq!(statement.name.value, *expected_identifier);
-            assert_eq!(statement.name.token_literal(), *expected_identifier);
+            if let LetStatement {
+                identifier,
+                expression,
+            } = statement
+            {
+                assert_eq!(identifier.literal, *expected_identifier);
+                assert_eq!(*expression, EMPTY);
+            }
         }
+    }
+
+    fn check_parser_errors(p: &Parser) {
+        let errors = p.errors();
+        assert_eq!(
+            errors.len(),
+            0,
+            "had parsing errors: {}",
+            errors.get(0).unwrap()
+        )
     }
 }

@@ -1,60 +1,25 @@
 use monkey_token::token::Token;
-use std::any::Any;
 
-pub trait Node {
+pub trait HasToken {
     fn token_literal(&self) -> &str;
 }
 
-pub trait Statement: Node {
-    fn statement_node(&self);
+#[derive(Debug, PartialEq)]
+pub enum Expression {
+    EMPTY, // TODO: Look wherever you used this and remove it
 }
 
-pub trait Expression: Node {
-    fn expression_node(&self);
+enum Node<'a> {
+    Identifier(Token<'a>),
 }
 
-pub struct Identifier<'a> {
-    pub token: Token<'a>,
-    pub value: &'a str,
-}
-
-impl<'a> Node for Identifier<'a> {
-    fn token_literal(&self) -> &'a str {
-        self.token.literal
-    }
-}
-
-impl<'a> Expression for Identifier<'a> {
-    fn expression_node(&self) {}
-}
-
-pub struct LetStatement<'a> {
-    pub token: Token<'a>,
-    pub name: Identifier<'a>,
-    // TODO: make it not optional
-    pub value: Option<Box<dyn Expression + 'a>>,
-}
-
-impl<'a> Node for LetStatement<'a> {
-    fn token_literal(&self) -> &str {
-        self.token.literal
-    }
-}
-
-impl Statement for LetStatement<'_> {
-    fn statement_node(&self) {}
+pub enum Statement<'a> {
+    LetStatement {
+        identifier: Token<'a>,
+        expression: Expression,
+    },
 }
 
 pub struct Program<'a> {
-    pub statements: Vec<Box<dyn Statement + 'a>>
-}
-
-impl<'a> Node for Program<'a> {
-    fn token_literal(&self) -> &str {
-        if !self.statements.is_empty() {
-            self.statements[0].token_literal()
-        } else {
-            ""
-        }
-    }
+    pub statements: Vec<Statement<'a>>,
 }
