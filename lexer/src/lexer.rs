@@ -1,7 +1,8 @@
-use monkey_token::token::{
-    lookup_ident, Token, TokenType, ASSIGN, ASTERISK, BANG, COMMA, EOF, EQ, GT, ILLEGAL, INT,
-    LBRACE, LPAREN, LT, MINUS, NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH,
+use monkey_token::token::TokenType::{
+    ASSIGN, ASTERISK, BANG, COMMA, EOF, EQ, GT, ILLEGAL, INT, LBRACE, LPAREN, LT, MINUS, NOT_EQ,
+    PLUS, RBRACE, RPAREN, SEMICOLON, SLASH,
 };
+use monkey_token::token::{lookup_ident, Token, TokenType};
 
 pub struct Lexer<'a> {
     input: &'a str,
@@ -19,7 +20,7 @@ fn is_digit(ch: char) -> bool {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &str) -> Lexer {
+    pub fn new(input: &'a str) -> Lexer<'a> {
         let mut l = Lexer {
             input,
             position: 0,
@@ -88,7 +89,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Token<'a> {
         self.skip_whitespace();
         let mut advanced = false;
         let tok = match self.ch {
@@ -171,7 +172,7 @@ impl<'a> Lexer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use monkey_token::token::{ELSE, FALSE, FUNCTION, IDENT, IF, LET, RETURN, TRUE};
+    use monkey_token::token::TokenType::{ELSE, FALSE, FUNCTION, IDENT, IF, LET, RETURN, TRUE};
 
     use super::*;
 
