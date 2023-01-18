@@ -1,5 +1,5 @@
 use monkey_ast::ast::Expression::EMPTY;
-use monkey_ast::ast::Statement::LetStatement;
+use monkey_ast::ast::Statement::{LetStatement, ReturnStatement};
 use monkey_ast::ast::{Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::{Token, TokenType};
@@ -31,6 +31,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     fn parse_statement(&mut self) -> Option<Statement<'b>> {
         match self.curr_token.as_ref().unwrap().token_type {
             TokenType::LET => self.parse_let_statement(),
+            TokenType::RETURN => self.parse_return_statement(),
             _ => None,
         }
     }
@@ -48,6 +49,16 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.errors.push(msg);
     }
 
+    fn parse_return_statement(&mut self) -> Option<Statement<'b>> {
+        // TODO: we're skipping expression parsing
+        while !self.curr_token_is(TokenType::SEMICOLON) {
+            self.next_token();
+        }
+        Some(ReturnStatement {
+            return_value: EMPTY,
+        })
+    }
+
     fn parse_let_statement(&mut self) -> Option<Statement<'b>> {
         if !self.expect_peek(TokenType::IDENT) {
             return None;
@@ -61,10 +72,10 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             self.next_token();
         }
 
-        return Some(LetStatement {
-            identifier: id_token,
+        Some(LetStatement {
+            identifier: id_token ,
             expression: EMPTY,
-        });
+        })
     }
 
     fn curr_token_is(&self, t: TokenType) -> bool {
@@ -98,6 +109,15 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     }
 }
 
+macro_rules! setup_lexer_and_parser {
+    ($lexer:ident, $parser:ident, $program: ident, $input:expr) => {
+        let mut $lexer = Lexer::new($input);
+        let mut $parser = Parser::new(&mut $lexer);
+        let $program = $parser.parse_program();
+        check_parser_errors(&$parser);
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -112,11 +132,7 @@ mod tests {
 let x = 5;
 let y = 10;
 let foobar = 838383;";
-        let mut l = Lexer::new(input);
-        let mut p = Parser::new(&mut l);
-        let program = p.parse_program();
-        check_parser_errors(&p);
-
+        setup_lexer_and_parser!(l, p, program, &input);
         if program.statements.len() != 3 {
             panic!(
                 "Program does not contain 3 statements, got: {}",
@@ -135,6 +151,8 @@ let foobar = 838383;";
             {
                 assert_eq!(identifier.literal, *expected_identifier);
                 assert_eq!(*expression, EMPTY);
+            } else {
+                panic!("expected LetStatement, got {:#?}", statement);
             }
         }
     }
@@ -146,6 +164,29 @@ let foobar = 838383;";
             0,
             "had parsing errors: {}",
             errors.get(0).unwrap()
-        )
+        );
+    }
+
+    #[test]
+    fn test_return_statements() {
+        let input = "
+return 5;
+return 10;
+return 993322;";
+        setup_lexer_and_parser!(l, p, program, &input);
+
+        if program.statements.len() != 3 {
+            panic!(
+                "Program does not contain 3 statements, got: {}",
+                program.statements.len()
+            );
+        }
+        for (i, statement) in program.statements.iter().enumerate() {
+            if let ReturnStatement { return_value } = statement {
+                assert_eq!(*return_value, EMPTY);
+            } else {
+                panic!("expected ReturnStatement, got {:#?}", statement);
+            }
+        }
     }
 }

@@ -68,20 +68,10 @@ impl TokenType {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Token<'a> {
     pub token_type: TokenType,
     pub literal: &'a str,
-}
-
-impl<'a> Debug for Token<'a> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(
-            f,
-            "Token {{ token_type: {}, literal: {} }}",
-            self.token_type.to_str(),
-            self.literal
-        )
-    }
 }
 
 pub fn lookup_ident(ident: &str) -> TokenType {
