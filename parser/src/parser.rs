@@ -1,8 +1,28 @@
-use monkey_ast::ast::Expression::EMPTY;
-use monkey_ast::ast::Statement::{LetStatement, ReturnStatement};
-use monkey_ast::ast::{Program, Statement};
+use std::borrow::Borrow;
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::iter::Map;
+
+use monkey_ast::ast::{Expression, Program, Statement};
+use monkey_ast::ast::Expression::{EMPTY, Identifier, IntegerLiteral, PrefixExpression};
+use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::{Token, TokenType};
+use monkey_token::token::TokenType::{BANG, IDENT, INT, MINUS, SEMICOLON};
+
+use crate::parser::Precedence::Prefix;
+
+enum Precedence {
+    Lowest,
+    Equals,
+    LessGreater,
+    Sum,
+    Product,
+    Prefix,
+    Call,
+}
+
+type ParseFn<'b, T> = fn(&mut T) -> Expression<'b>;
 
 struct Parser<'a, 'b: 'a> {
     l: &'a mut Lexer<'b>,
@@ -32,8 +52,54 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         match self.curr_token.as_ref().unwrap().token_type {
             TokenType::LET => self.parse_let_statement(),
             TokenType::RETURN => self.parse_return_statement(),
+            _ => self.parse_expression_statement(),
+        }
+    }
+
+    fn foo(&mut self) -> Expression<'b> {
+        Expression::EMPTY
+    }
+
+    fn parse_identifier(&mut self) -> Expression<'b> {
+        Identifier(self.curr_token.take().unwrap())
+    }
+
+    fn parse_integer_literal(&mut self) -> Expression<'b> {
+        let token = self.curr_token.take().unwrap();
+        let value = token.literal.to_string().parse::<usize>().unwrap();
+        IntegerLiteral { token, value }
+    }
+
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression<'b>> {
+        let curr_type = &self.curr_token.as_ref().unwrap().token_type;
+        match curr_type {
+            IDENT => Some(self.parse_identifier()),
+            INT => Some(self.parse_integer_literal()),
+            BANG => Some(self.parse_prefix_expression()),
+            MINUS => Some(self.parse_prefix_expression()),
             _ => None,
         }
+    }
+
+    fn parse_prefix_expression(&mut self) -> Expression<'b> {
+        let curr_token = self.curr_token.take().unwrap();
+        self.next_token();
+        PrefixExpression {
+            operator: curr_token.literal.clone(),
+            right: Box::new(self.parse_expression(Prefix).unwrap()),
+        }
+    }
+
+    fn parse_expression_statement(&mut self) -> Option<Statement<'b>> {
+        let expression = self.parse_expression(Precedence::Lowest);
+        if expression.is_none() {
+            return None;
+        }
+        let expression = expression.unwrap();
+        if self.peek_token_is(SEMICOLON) {
+            self.next_token();
+        }
+        return Some(ExpressionStatement { expression });
     }
 
     pub fn errors(&self) -> &Vec<String> {
@@ -73,7 +139,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         }
 
         Some(LetStatement {
-            identifier: id_token ,
+            identifier: id_token,
             expression: EMPTY,
         })
     }
@@ -122,9 +188,24 @@ macro_rules! setup_lexer_and_parser {
 mod tests {
     use std::any::Any;
     use std::mem::transmute;
+    use std::ops::Deref;
     use std::os::macos::raw::stat;
 
+    use monkey_ast::ast::Expression;
+    use monkey_ast::ast::Expression::{IntegerLiteral, PrefixExpression};
+    use monkey_token::token::TokenType::{IDENT, INT};
+
     use super::*;
+
+    fn check_program_statements(program: &Program, num_statements: usize) {
+        if program.statements.len() != num_statements {
+            panic!(
+                "Program does not contain {} statements, got: {}",
+                num_statements,
+                program.statements.len()
+            );
+        }
+    }
 
     #[test]
     fn test_let_statements() {
@@ -133,12 +214,7 @@ let x = 5;
 let y = 10;
 let foobar = 838383;";
         setup_lexer_and_parser!(l, p, program, &input);
-        if program.statements.len() != 3 {
-            panic!(
-                "Program does not contain 3 statements, got: {}",
-                program.statements.len()
-            );
-        }
+        check_program_statements(&program, 3);
         let tests = ["x", "y", "foobar"];
         for (i, expected_identifier) in tests.iter().enumerate() {
             let mut statement = program.statements.get(i);
@@ -174,13 +250,8 @@ return 5;
 return 10;
 return 993322;";
         setup_lexer_and_parser!(l, p, program, &input);
+        check_program_statements(&program, 3);
 
-        if program.statements.len() != 3 {
-            panic!(
-                "Program does not contain 3 statements, got: {}",
-                program.statements.len()
-            );
-        }
         for (i, statement) in program.statements.iter().enumerate() {
             if let ReturnStatement { return_value } = statement {
                 assert_eq!(*return_value, EMPTY);
@@ -189,4 +260,66 @@ return 993322;";
             }
         }
     }
+
+    #[test]
+    fn test_identifier_expression() {
+        let input = "foobar;";
+        setup_lexer_and_parser!(l, p, program, &input);
+        check_program_statements(&program, 1);
+        let statement = program.statements.get(0).unwrap();
+        let expression: &Expression = match statement {
+            ExpressionStatement { expression } => expression,
+            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
+        };
+        let token = match expression {
+            Identifier { 0: token } => token,
+            _ => panic!("expected Identifier, got {:#?}", statement),
+        };
+        assert_eq!(token.token_type, IDENT);
+        assert_eq!(token.literal, "foobar");
+    }
+
+    #[test]
+    fn test_integer_literal_expression() {
+        let input = "1234;";
+        setup_lexer_and_parser!(l, p, program, &input);
+        check_program_statements(&program, 1);
+        let statement = program.statements.get(0).unwrap();
+        let expression: &Expression = match statement {
+            ExpressionStatement { expression } => expression,
+            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
+        };
+        let (token, value) = match expression {
+            IntegerLiteral { token, value } => (token, value),
+            _ => panic!("expected IntegerLiteral, got {:#?}", statement),
+        };
+        assert_eq!(token.token_type, INT);
+        assert_eq!(token.literal, "1234");
+        assert_eq!(*value, 1234);
+    }
+
+    #[test]
+    fn test_parsing_prefix_operations() {
+        let prefix_tests = [("!5", "!", "5"), ("-15", "-", "15")];
+        for (i, (input, op, literal)) in prefix_tests.iter().enumerate() {
+            setup_lexer_and_parser!(l, p, program, &input);
+            check_program_statements(&program, 1);
+            let statement = program.statements.get(0).unwrap();
+            let expression: &Expression = match statement {
+                ExpressionStatement { expression } => expression,
+                _ => panic!("expected ExpressionStatement, got {:#?}", statement),
+            };
+            let (operator, right) = match expression {
+                PrefixExpression { operator, right } => (operator, right),
+                _ => panic!("expected IntegerLiteral, got {:#?}", statement),
+            };
+            assert_eq!(*op, *operator);
+            let (token, value) = match right.as_ref() {
+                IntegerLiteral { token, value } => (token, value),
+                _ => panic!("expected IntegerLiteral, got {:#?}", statement),
+            };
+            assert_eq!(token.literal, *literal);
+        }
+    }
+
 }

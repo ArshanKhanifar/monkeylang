@@ -7,6 +7,14 @@ pub trait HasToken {
 #[derive(Debug, PartialEq)]
 pub enum Expression<'a> {
     Identifier(Token<'a>),
+    IntegerLiteral {
+        token: Token<'a>,
+        value: usize,
+    },
+    PrefixExpression {
+        operator: &'a str,
+        right: Box<Expression<'a>>,
+    },
     EMPTY, // TODO: Look wherever you used this and remove it
 }
 
