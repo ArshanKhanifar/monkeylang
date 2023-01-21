@@ -4,13 +4,13 @@ use std::hash::Hash;
 use std::iter::Map;
 
 use monkey_ast::ast::Expression::{
-    Identifier, InfixExpression, IntegerLiteral, PrefixExpression, EMPTY,
+    BooleanLiteral, Identifier, InfixExpression, IntegerLiteral, PrefixExpression, EMPTY,
 };
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
 use monkey_ast::ast::{Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, EQ, GT, IDENT, INT, LT, MINUS, NOT_EQ, PLUS, SEMICOLON, SLASH,
+    ASTERISK, BANG, EQ, FALSE, GT, IDENT, INT, LT, MINUS, NOT_EQ, PLUS, SEMICOLON, SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
@@ -87,6 +87,10 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         Identifier(self.curr_token.take().unwrap())
     }
 
+    fn parse_boolean(&mut self) -> Expression<'b> {
+        BooleanLiteral(self.curr_token.take().unwrap().literal == "true")
+    }
+
     fn parse_integer_literal(&mut self) -> Expression<'b> {
         let token = self.curr_token.take().unwrap();
         let value = token.literal.to_string().parse::<usize>().unwrap();
@@ -99,6 +103,8 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             INT => Some(self.parse_integer_literal()),
             BANG => Some(self.create_prefix_expression()),
             MINUS => Some(self.create_prefix_expression()),
+            TRUE => Some(self.parse_boolean()),
+            FALSE => Some(self.parse_boolean()),
             _ => None,
         }
     }
@@ -264,13 +270,22 @@ mod tests {
 
     use super::*;
 
-    fn check_program_statements(program: &Program, num_statements: usize) {
+    fn check_program_statements_length(program: &Program, num_statements: usize) {
         if program.statements.len() != num_statements {
             panic!(
                 "Program does not contain {} statements, got: {}",
                 num_statements,
                 program.statements.len()
             );
+        }
+    }
+
+    fn extract_program_expression<'a>(program: &'a Program<'a>) -> &'a Expression<'a> {
+        check_program_statements_length(&program, 1);
+        let statement = program.statements.get(0).unwrap();
+        match statement {
+            ExpressionStatement { expression } => expression,
+            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
         }
     }
 
@@ -281,7 +296,7 @@ let x = 5;
 let y = 10;
 let foobar = 838383;";
         setup_lexer_and_parser!(l, p, program, &input);
-        check_program_statements(&program, 3);
+        check_program_statements_length(&program, 3);
         let tests = ["x", "y", "foobar"];
         for (i, expected_identifier) in tests.iter().enumerate() {
             let mut statement = program.statements.get(i);
@@ -317,8 +332,7 @@ return 5;
 return 10;
 return 993322;";
         setup_lexer_and_parser!(l, p, program, &input);
-        check_program_statements(&program, 3);
-
+        check_program_statements_length(&program, 3);
         for (i, statement) in program.statements.iter().enumerate() {
             if let ReturnStatement { return_value } = statement {
                 assert_eq!(*return_value, EMPTY);
@@ -332,37 +346,16 @@ return 993322;";
     fn test_identifier_expression() {
         let input = "foobar;";
         setup_lexer_and_parser!(l, p, program, &input);
-        check_program_statements(&program, 1);
-        let statement = program.statements.get(0).unwrap();
-        let expression: &Expression = match statement {
-            ExpressionStatement { expression } => expression,
-            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
-        };
-        let token = match expression {
-            Identifier { 0: token } => token,
-            _ => panic!("expected Identifier, got {:#?}", statement),
-        };
-        assert_eq!(token.token_type, IDENT);
-        assert_eq!(token.literal, "foobar");
+        let expression = extract_program_expression(&program);
+        test_identifier(expression, "foobar");
     }
 
     #[test]
     fn test_integer_literal_expression() {
         let input = "1234;";
         setup_lexer_and_parser!(l, p, program, &input);
-        check_program_statements(&program, 1);
-        let statement = program.statements.get(0).unwrap();
-        let expression: &Expression = match statement {
-            ExpressionStatement { expression } => expression,
-            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
-        };
-        let (token, value) = match expression {
-            IntegerLiteral { token, value } => (token, value),
-            _ => panic!("expected IntegerLiteral, got {:#?}", statement),
-        };
-        assert_eq!(token.token_type, INT);
-        assert_eq!(token.literal, "1234");
-        assert_eq!(*value, 1234);
+        let expression = extract_program_expression(&program);
+        test_integer_literal(expression, 1234);
     }
 
     #[test]
@@ -370,23 +363,53 @@ return 993322;";
         let prefix_tests = [("!5", "!", "5"), ("-15", "-", "15")];
         for (i, (input, op, literal)) in prefix_tests.iter().enumerate() {
             setup_lexer_and_parser!(l, p, program, &input);
-            check_program_statements(&program, 1);
-            let statement = program.statements.get(0).unwrap();
-            let expression: &Expression = match statement {
-                ExpressionStatement { expression } => expression,
-                _ => panic!("expected ExpressionStatement, got {:#?}", statement),
-            };
+            let expression = extract_program_expression(&program);
             let (operator, right) = match expression {
                 PrefixExpression { operator, right } => (operator, right),
-                _ => panic!("expected IntegerLiteral, got {:#?}", statement),
+                _ => panic!("expected IntegerLiteral, got {:#?}", expression),
             };
             assert_eq!(*op, operator.literal);
-            let (token, value) = match right.as_ref() {
-                IntegerLiteral { token, value } => (token, value),
-                _ => panic!("expected IntegerLiteral, got {:#?}", statement),
-            };
-            assert_eq!(token.literal, *literal);
+            test_integer_literal(right.as_ref(), (*literal).parse::<usize>().unwrap());
         }
+    }
+
+    fn test_infix_operation(e: &Expression, l_val: &Expression, op: &str, r_val: &Expression) {
+        let (left, operator, right) = match e {
+            InfixExpression {
+                left,
+                operator,
+                right,
+            } => (left, operator, right),
+            _ => panic!("expected InfixExpression, got {:#?}", e),
+        };
+    }
+
+    fn test_identifier(e: &Expression, value: &str) {
+        let Token {
+            literal,
+            token_type,
+        } = match e {
+            Identifier(t) => t,
+            _ => panic!("expected InfixExpression, got {:#?}", e),
+        };
+        assert_eq!(*token_type, IDENT);
+        assert_eq!(*literal, value);
+    }
+
+    fn test_integer_literal(e: &Expression, value: usize) {
+        let (
+            Token {
+                literal,
+                token_type,
+            },
+            v,
+        ) = match e {
+            IntegerLiteral { token, value } => (token, value),
+            _ => panic!("expected IntegerLiteral, got {:#?}", e),
+        };
+        assert_eq!(*v, value);
+        assert_eq!(*token_type, INT);
+        assert_eq!(*literal, format!("{}", value));
     }
 
     #[test]
@@ -402,9 +425,20 @@ return 993322;";
             ("5 != 5;", 5, "!=", 5),
         ];
 
+        let bool_tests = [
+            ("true == true", true, "==", true),
+            ("true != false", true, "!=", false),
+            ("false == false", false, "==", false),
+        ];
+
         for (input, l_val, op, r_val) in infix_tests {
             setup_lexer_and_parser!(l, p, program, &input);
-            check_program_statements(&program, 1);
+            check_program_statements_length(&program, 1);
+        }
+
+        for (input, l_val, op, r_val) in bool_tests {
+            setup_lexer_and_parser!(l, p, program, &input);
+            check_program_statements_length(&program, 1);
         }
     }
 
@@ -426,6 +460,11 @@ return 993322;";
                 "3 + 4 * 5 == 3 * 1 + 4 * 5",
                 "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
             ),
+            // booleans
+            ("true", "true"),
+            ("false", "false"),
+            ("3 > 5 == false", "((3 > 5) == false)"),
+            ("3 < 5 == true", "((3 < 5) == true)"),
         ];
 
         for (input, expected) in precedence_tests {

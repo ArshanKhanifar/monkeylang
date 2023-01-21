@@ -8,6 +8,7 @@ pub trait HasToken {
 #[derive(Debug, PartialEq)]
 pub enum Expression<'a> {
     Identifier(Token<'a>),
+    BooleanLiteral(bool),
     IntegerLiteral {
         token: Token<'a>,
         value: usize,
@@ -28,6 +29,7 @@ impl<'a> ToString for Expression<'a> {
     fn to_string(&self) -> String {
         match self {
             Expression::Identifier(token) => token.literal.to_string(),
+            Expression::BooleanLiteral(val) => val.to_string(),
             Expression::IntegerLiteral { token, value } => token.literal.to_string(),
             Expression::PrefixExpression { operator, right } => {
                 format!("({}{})", operator.literal, right.to_string())
