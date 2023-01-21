@@ -10,7 +10,8 @@ use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatem
 use monkey_ast::ast::{Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, EQ, FALSE, GT, IDENT, INT, LT, MINUS, NOT_EQ, PLUS, SEMICOLON, SLASH, TRUE,
+    ASTERISK, BANG, EQ, FALSE, GT, IDENT, INT, LPAREN, LT, MINUS, NOT_EQ, PLUS, RPAREN, SEMICOLON,
+    SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
@@ -105,6 +106,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             MINUS => Some(self.create_prefix_expression()),
             TRUE => Some(self.parse_boolean()),
             FALSE => Some(self.parse_boolean()),
+            LPAREN => self.parse_grouped_expression(),
             _ => None,
         }
     }
@@ -161,6 +163,15 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             operator: curr_token,
             right: Box::new(self.parse_expression(Prefix).unwrap()),
         }
+    }
+
+    fn parse_grouped_expression(&mut self) -> Option<Expression<'b>> {
+        self.next_token();
+        let exp = self.parse_expression(Lowest);
+        if !self.expect_peek(RPAREN) {
+            return None;
+        }
+        exp
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement<'b>> {
@@ -508,6 +519,12 @@ return 993322;";
             ("false", "false"),
             ("3 > 5 == false", "((3 > 5) == false)"),
             ("3 < 5 == true", "((3 < 5) == true)"),
+            // brackets
+            ("1 + (2 + 3) + 4", "((1 + (2 + 3)) + 4)"),
+            ("(5 + 5) * 2", "((5 + 5) * 2)"),
+            ("2 / (5 + 5)", "(2 / (5 + 5))"),
+            ("-(5 + 5)", "(-(5 + 5))"),
+            ("!(true == true)", "(!(true == true))"),
         ];
 
         for (input, expected) in precedence_tests {
