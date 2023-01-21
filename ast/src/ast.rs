@@ -1,4 +1,5 @@
 use monkey_token::token::Token;
+use std::fmt::format;
 
 pub trait HasToken {
     fn token_literal(&self) -> &str;
@@ -12,7 +13,12 @@ pub enum Expression<'a> {
         value: usize,
     },
     PrefixExpression {
-        operator: &'a str,
+        operator: Token<'a>,
+        right: Box<Expression<'a>>,
+    },
+    InfixExpression {
+        operator: Token<'a>,
+        left: Box<Expression<'a>>,
         right: Box<Expression<'a>>,
     },
     EMPTY, // TODO: Look wherever you used this and remove it
@@ -22,6 +28,22 @@ impl<'a> ToString for Expression<'a> {
     fn to_string(&self) -> String {
         match self {
             Expression::Identifier(token) => token.literal.to_string(),
+            Expression::IntegerLiteral { token, value } => token.literal.to_string(),
+            Expression::PrefixExpression { operator, right } => {
+                format!("{} {}", operator.literal, right.to_string())
+            }
+            Expression::InfixExpression {
+                operator,
+                left,
+                right,
+            } => {
+                format!(
+                    "{} {} {}",
+                    left.to_string(),
+                    operator.literal,
+                    right.to_string()
+                )
+            }
             _ => "".to_string(),
         }
     }

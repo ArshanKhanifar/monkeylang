@@ -3,23 +3,42 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::iter::Map;
 
-use monkey_ast::ast::{Expression, Program, Statement};
-use monkey_ast::ast::Expression::{EMPTY, Identifier, IntegerLiteral, PrefixExpression};
+use monkey_ast::ast::Expression::{
+    Identifier, InfixExpression, IntegerLiteral, PrefixExpression, EMPTY,
+};
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
+use monkey_ast::ast::{Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
+use monkey_token::token::TokenType::{
+    ASTERISK, BANG, EQ, GT, IDENT, INT, LT, MINUS, NOT_EQ, PLUS, SEMICOLON, SLASH,
+};
 use monkey_token::token::{Token, TokenType};
-use monkey_token::token::TokenType::{BANG, IDENT, INT, MINUS, SEMICOLON};
 
-use crate::parser::Precedence::Prefix;
+use crate::parser::Precedence::{Equals, Lowest, Prefix};
 
+#[derive(PartialOrd, PartialEq)]
 enum Precedence {
-    Lowest,
+    Lowest = 0,
     Equals,
     LessGreater,
     Sum,
     Product,
     Prefix,
     Call,
+}
+
+fn precedence_lookup(t: &TokenType) -> Precedence {
+    match t {
+        EQ => Equals,
+        NOT_EQ => Equals,
+        LT => Equals,
+        GT => Equals,
+        PLUS => Equals,
+        MINUS => Equals,
+        SLASH => Equals,
+        ASTERISK => Equals,
+        _ => Lowest,
+    }
 }
 
 type ParseFn<'b, T> = fn(&mut T) -> Expression<'b>;
@@ -48,16 +67,20 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.peek_token = Some(self.l.next_token());
     }
 
+    fn peek_precedence(&self) -> Precedence {
+        precedence_lookup(&self.peek_token.as_ref().unwrap().token_type)
+    }
+
+    fn curr_precedence(&self) -> Precedence {
+        precedence_lookup(&self.curr_token.as_ref().unwrap().token_type)
+    }
+
     fn parse_statement(&mut self) -> Option<Statement<'b>> {
         match self.curr_token.as_ref().unwrap().token_type {
             TokenType::LET => self.parse_let_statement(),
             TokenType::RETURN => self.parse_return_statement(),
             _ => self.parse_expression_statement(),
         }
-    }
-
-    fn foo(&mut self) -> Expression<'b> {
-        Expression::EMPTY
     }
 
     fn parse_identifier(&mut self) -> Expression<'b> {
@@ -70,22 +93,66 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         IntegerLiteral { token, value }
     }
 
-    fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression<'b>> {
-        let curr_type = &self.curr_token.as_ref().unwrap().token_type;
-        match curr_type {
+    fn parse_prefix(&mut self) -> Option<Expression<'b>> {
+        match self.curr_token.as_ref().unwrap().token_type {
             IDENT => Some(self.parse_identifier()),
             INT => Some(self.parse_integer_literal()),
-            BANG => Some(self.parse_prefix_expression()),
-            MINUS => Some(self.parse_prefix_expression()),
+            BANG => Some(self.create_prefix_expression()),
+            MINUS => Some(self.create_prefix_expression()),
             _ => None,
         }
     }
 
-    fn parse_prefix_expression(&mut self) -> Expression<'b> {
+    fn get_infix_parse_fn(
+        &mut self,
+    ) -> Option<fn(&mut Parser<'a, 'b>, left: Expression<'b>) -> Expression<'b>> {
+        match self.peek_token.as_ref().unwrap().token_type {
+            PLUS => Some(Parser::parse_infix_expression),
+            MINUS => Some(Parser::parse_infix_expression),
+            SLASH => Some(Parser::parse_infix_expression),
+            ASTERISK => Some(Parser::parse_infix_expression),
+            EQ => Some(Parser::parse_infix_expression),
+            NOT_EQ => Some(Parser::parse_infix_expression),
+            LT => Some(Parser::parse_infix_expression),
+            GT => Some(Parser::parse_infix_expression),
+            _ => None,
+        }
+    }
+
+    fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression<'b>> {
+        let prefix_result = self.parse_prefix();
+        if prefix_result.is_none() {
+            panic!("No prefix parser found!");
+            // TODO: collect error here instead of panicking.
+        }
+        let mut left_exp = prefix_result.unwrap();
+        while !self.peek_token_is(SEMICOLON) && precedence < self.peek_precedence() {
+            let infix_fn = self.get_infix_parse_fn();
+            if infix_fn.is_none() {
+                return Some(left_exp);
+            }
+            self.next_token();
+            left_exp = infix_fn.unwrap()(self, left_exp);
+        }
+        Some(left_exp)
+    }
+
+    fn parse_infix_expression(&mut self, left: Expression<'b>) -> Expression<'b> {
+        let precedence = self.curr_precedence();
+        let curr_token = self.curr_token.take().unwrap();
+        self.next_token();
+        InfixExpression {
+            left: Box::new(left),
+            operator: curr_token,
+            right: Box::new(self.parse_expression(precedence).unwrap()),
+        }
+    }
+
+    fn create_prefix_expression(&mut self) -> Expression<'b> {
         let curr_token = self.curr_token.take().unwrap();
         self.next_token();
         PrefixExpression {
-            operator: curr_token.literal.clone(),
+            operator: curr_token,
             right: Box::new(self.parse_expression(Prefix).unwrap()),
         }
     }
@@ -313,7 +380,7 @@ return 993322;";
                 PrefixExpression { operator, right } => (operator, right),
                 _ => panic!("expected IntegerLiteral, got {:#?}", statement),
             };
-            assert_eq!(*op, *operator);
+            assert_eq!(*op, operator.literal);
             let (token, value) = match right.as_ref() {
                 IntegerLiteral { token, value } => (token, value),
                 _ => panic!("expected IntegerLiteral, got {:#?}", statement),
@@ -322,4 +389,22 @@ return 993322;";
         }
     }
 
+    #[test]
+    fn test_parsing_infix_operations() {
+        let infix_tests = [
+            ("5 + 5;", 5, "+", 5),
+            ("5 - 5;", 5, "-", 5),
+            ("5 * 5;", 5, "*", 5),
+            ("5 / 5;", 5, "/", 5),
+            ("5 > 5;", 5, ">", 5),
+            ("5 < 5;", 5, "<", 5),
+            ("5 == 5;", 5, "==", 5),
+            ("5 != 5;", 5, "!=", 5),
+        ];
+
+        for (input, l_val, op, r_val) in infix_tests {
+            setup_lexer_and_parser!(l, p, program, &input);
+            check_program_statements(&program, 1);
+        }
+    }
 }
