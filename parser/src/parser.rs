@@ -14,7 +14,7 @@ use monkey_token::token::TokenType::{
 };
 use monkey_token::token::{Token, TokenType};
 
-use crate::parser::Precedence::{Equals, Lowest, Prefix};
+use crate::parser::Precedence::{Equals, LessGreater, Lowest, Prefix, Product, Sum};
 
 #[derive(PartialOrd, PartialEq)]
 enum Precedence {
@@ -31,12 +31,12 @@ fn precedence_lookup(t: &TokenType) -> Precedence {
     match t {
         EQ => Equals,
         NOT_EQ => Equals,
-        LT => Equals,
-        GT => Equals,
-        PLUS => Equals,
-        MINUS => Equals,
-        SLASH => Equals,
-        ASTERISK => Equals,
+        LT => LessGreater,
+        GT => LessGreater,
+        PLUS => Sum,
+        MINUS => Sum,
+        SLASH => Product,
+        ASTERISK => Product,
         _ => Lowest,
     }
 }
@@ -405,6 +405,33 @@ return 993322;";
         for (input, l_val, op, r_val) in infix_tests {
             setup_lexer_and_parser!(l, p, program, &input);
             check_program_statements(&program, 1);
+        }
+    }
+
+    #[test]
+    fn test_operator_precedence_parsing() {
+        let precedence_tests = [
+            ("-a * b", "((-a) * b)"),
+            ("!-a", "(!(-a))"),
+            ("a + b + c", "((a + b) + c)"),
+            ("a + b - c", "((a + b) - c)"),
+            ("a * b * c", "((a * b) * c)"),
+            ("a * b / c", "((a * b) / c)"),
+            ("a + b / c", "(a + (b / c))"),
+            ("a + b * c + d / e - f", "(((a + (b * c)) + (d / e)) - f)"),
+            ("3 + 4; -5 * 5", "(3 + 4)((-5) * 5)"),
+            ("5 > 4 == 3 < 4", "((5 > 4) == (3 < 4))"),
+            ("5 < 4 != 3 > 4", "((5 < 4) != (3 > 4))"),
+            (
+                "3 + 4 * 5 == 3 * 1 + 4 * 5",
+                "((3 + (4 * 5)) == ((3 * 1) + (4 * 5)))",
+            ),
+        ];
+
+        for (input, expected) in precedence_tests {
+            setup_lexer_and_parser!(l, p, program, &input);
+            let actual = program.to_string();
+            assert_eq!(actual, expected);
         }
     }
 }

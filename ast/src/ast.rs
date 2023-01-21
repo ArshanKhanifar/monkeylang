@@ -30,7 +30,7 @@ impl<'a> ToString for Expression<'a> {
             Expression::Identifier(token) => token.literal.to_string(),
             Expression::IntegerLiteral { token, value } => token.literal.to_string(),
             Expression::PrefixExpression { operator, right } => {
-                format!("{} {}", operator.literal, right.to_string())
+                format!("({}{})", operator.literal, right.to_string())
             }
             Expression::InfixExpression {
                 operator,
@@ -38,7 +38,7 @@ impl<'a> ToString for Expression<'a> {
                 right,
             } => {
                 format!(
-                    "{} {} {}",
+                    "({} {} {})",
                     left.to_string(),
                     operator.literal,
                     right.to_string()
