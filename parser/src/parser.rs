@@ -358,22 +358,38 @@ return 993322;";
         test_integer_literal(expression, 1234);
     }
 
+    fn test_prefix_expression<T>(e: &Expression, op: &str, val: T, tester: fn(&Expression, T)) {
+        let (operator, right) = match e {
+            PrefixExpression { operator, right } => (operator, right),
+            _ => panic!("expected PrefixExpression, got {:#?}", e),
+        };
+        tester(right.as_ref(), val);
+        assert_eq!(op, operator.literal);
+    }
+
     #[test]
     fn test_parsing_prefix_operations() {
         let prefix_tests = [("!5", "!", "5"), ("-15", "-", "15")];
         for (i, (input, op, literal)) in prefix_tests.iter().enumerate() {
             setup_lexer_and_parser!(l, p, program, &input);
             let expression = extract_program_expression(&program);
-            let (operator, right) = match expression {
-                PrefixExpression { operator, right } => (operator, right),
-                _ => panic!("expected IntegerLiteral, got {:#?}", expression),
-            };
-            assert_eq!(*op, operator.literal);
-            test_integer_literal(right.as_ref(), (*literal).parse::<usize>().unwrap());
+            test_prefix_expression::<usize>(
+                expression,
+                *op,
+                (*literal).parse::<usize>().unwrap(),
+                test_integer_literal,
+            );
         }
     }
 
-    fn test_infix_operation(e: &Expression, l_val: &Expression, op: &str, r_val: &Expression) {
+    fn test_infix_expression<T, U>(
+        e: &Expression,
+        l_val: T,
+        l_tester: fn(&Expression, T),
+        op: &str,
+        r_val: U,
+        r_tester: fn(&Expression, U),
+    ) {
         let (left, operator, right) = match e {
             InfixExpression {
                 left,
@@ -382,6 +398,9 @@ return 993322;";
             } => (left, operator, right),
             _ => panic!("expected InfixExpression, got {:#?}", e),
         };
+        l_tester(left.as_ref(), l_val);
+        assert_eq!(op, operator.literal);
+        r_tester(right.as_ref(), r_val);
     }
 
     fn test_identifier(e: &Expression, value: &str) {
@@ -394,6 +413,14 @@ return 993322;";
         };
         assert_eq!(*token_type, IDENT);
         assert_eq!(*literal, value);
+    }
+
+    fn test_boolean_literal(e: &Expression, value: bool) {
+        let val = match e {
+            BooleanLiteral(val) => val,
+            _ => panic!("expected BooleanLiteral, got {:#?}", e),
+        };
+        assert_eq!(*val, value);
     }
 
     fn test_integer_literal(e: &Expression, value: usize) {
@@ -433,12 +460,28 @@ return 993322;";
 
         for (input, l_val, op, r_val) in infix_tests {
             setup_lexer_and_parser!(l, p, program, &input);
-            check_program_statements_length(&program, 1);
+            let expression = extract_program_expression(&program);
+            test_infix_expression::<usize, usize>(
+                expression,
+                l_val,
+                test_integer_literal,
+                op,
+                r_val,
+                test_integer_literal,
+            );
         }
 
         for (input, l_val, op, r_val) in bool_tests {
             setup_lexer_and_parser!(l, p, program, &input);
-            check_program_statements_length(&program, 1);
+            let expression = extract_program_expression(&program);
+            test_infix_expression::<bool, bool>(
+                expression,
+                l_val,
+                test_boolean_literal,
+                op,
+                r_val,
+                test_boolean_literal,
+            );
         }
     }
 
