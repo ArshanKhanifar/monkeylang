@@ -4,14 +4,15 @@ use std::hash::Hash;
 use std::iter::Map;
 
 use monkey_ast::ast::Expression::{
-    BooleanLiteral, Identifier, InfixExpression, IntegerLiteral, PrefixExpression, EMPTY,
+    BooleanLiteral, Identifier, IfExpression, InfixExpression, IntegerLiteral, PrefixExpression,
+    EMPTY,
 };
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
-use monkey_ast::ast::{Expression, Program, Statement};
+use monkey_ast::ast::{BlockStatement, Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, EQ, FALSE, GT, IDENT, INT, LPAREN, LT, MINUS, NOT_EQ, PLUS, RPAREN, SEMICOLON,
-    SLASH, TRUE,
+    ASTERISK, BANG, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, INT, LBRACE, LPAREN, LT, MINUS, NOT_EQ,
+    PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
@@ -107,6 +108,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             TRUE => Some(self.parse_boolean()),
             FALSE => Some(self.parse_boolean()),
             LPAREN => self.parse_grouped_expression(),
+            IF => self.parse_if_expression(),
             _ => None,
         }
     }
@@ -172,6 +174,47 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             return None;
         }
         exp
+    }
+
+    fn parse_if_expression(&mut self) -> Option<Expression<'b>> {
+        if !self.expect_peek(LPAREN) {
+            return None;
+        }
+        self.next_token();
+        let condition = self.parse_expression(Lowest).unwrap();
+        if !self.expect_peek(RPAREN) {
+            return None;
+        }
+        if !self.expect_peek(LBRACE) {
+            return None;
+        }
+        let consequence = self.parse_block_statement();
+        let mut alternative = None;
+
+        if self.peek_token_is(ELSE) {
+            self.next_token();
+            if !self.expect_peek(LBRACE) {
+                return None;
+            }
+            alternative = Some(self.parse_block_statement());
+        }
+
+        Some(IfExpression {
+            condition: Box::new(condition),
+            consequence,
+            alternative,
+        })
+    }
+
+    fn parse_block_statement(&mut self) -> BlockStatement<'b> {
+        self.next_token();
+        let mut statements = Vec::new();
+        while !self.curr_token_is(RBRACE) && !self.curr_token_is(EOF) {
+            let stmnt = self.parse_statement().unwrap();
+            statements.push(stmnt);
+            self.next_token();
+        }
+        BlockStatement { statements }
     }
 
     fn parse_expression_statement(&mut self) -> Option<Statement<'b>> {
@@ -295,15 +338,22 @@ mod tests {
         }
     }
 
+    fn expression_from_statement<'a>(s: &'a Statement<'a>) -> &'a Expression<'a> {
+        match s {
+            ExpressionStatement { expression } => &expression,
+            _ => panic!("expected ExpressionStatement, got {:#?}", s),
+        }
+    }
+
     fn extract_program_expression<'a>(
         program: &'a Program<'a>,
         index: usize,
     ) -> &'a Expression<'a> {
         let statement = program.statements.get(index).unwrap();
-        match statement {
-            ExpressionStatement { expression } => expression,
-            _ => panic!("expected ExpressionStatement, got {:#?}", statement),
-        }
+        expression_from_statement(statement)
+        //match statement { ExpressionStatement { expression } => expression,
+        //    _ => panic!("expected ExpressionStatement, got {:#?}", statement),
+        //}
     }
 
     fn check_and_extract_program_expression<'a>(program: &'a Program<'a>) -> &'a Expression<'a> {
@@ -371,7 +421,7 @@ return 993322;";
         let input = "foobar;";
         setup_lexer_and_parser!(l, p, program, &input);
         let expression = check_and_extract_program_expression(&program);
-        test_identifier(expression, "foobar");
+        check_identifier(expression, "foobar");
     }
 
     #[test]
@@ -406,7 +456,7 @@ return 993322;";
         }
     }
 
-    fn test_infix_expression<T, U>(
+    fn check_infix_expression<T, U>(
         e: &Expression,
         l_val: T,
         l_tester: fn(&Expression, T),
@@ -427,7 +477,7 @@ return 993322;";
         r_tester(right.as_ref(), r_val);
     }
 
-    fn test_identifier(e: &Expression, value: &str) {
+    fn check_identifier(e: &Expression, value: &str) {
         let Token {
             literal,
             token_type,
@@ -485,7 +535,7 @@ return 993322;";
         for (input, l_val, op, r_val) in infix_tests {
             setup_lexer_and_parser!(l, p, program, &input);
             let expression = check_and_extract_program_expression(&program);
-            test_infix_expression::<usize, usize>(
+            check_infix_expression::<usize, usize>(
                 expression,
                 l_val,
                 test_integer_literal,
@@ -498,7 +548,7 @@ return 993322;";
         for (input, l_val, op, r_val) in bool_tests {
             setup_lexer_and_parser!(l, p, program, &input);
             let expression = check_and_extract_program_expression(&program);
-            test_infix_expression::<bool, bool>(
+            check_infix_expression::<bool, bool>(
                 expression,
                 l_val,
                 test_boolean_literal,
@@ -545,5 +595,80 @@ return 993322;";
             let actual = program.to_string();
             assert_eq!(actual, expected);
         }
+    }
+
+    fn check_if_else_expression(
+        e: &Expression,
+        condition_tester: fn(e: &Expression),
+        consequence_tester: fn(e: &BlockStatement),
+        alternative_tester: Option<fn(e: &BlockStatement)>,
+    ) {
+        let (condition, consequence) = match e {
+            IfExpression {
+                condition,
+                consequence,
+                alternative,
+            } => (condition.as_ref(), consequence),
+            _ => panic!("expected IfExpression, got {:#?}", e),
+        };
+        condition_tester(condition);
+        consequence_tester(consequence);
+        if let Some(alternative_tester) = alternative_tester {
+            alternative_tester;
+        }
+    }
+
+    #[test]
+    fn test_if_expression() {
+        let input = "if (x < y) {abc}";
+        setup_lexer_and_parser!(l, p, program, &input);
+        let expression = check_and_extract_program_expression(&program);
+        check_if_else_expression(
+            expression,
+            |condition| {
+                check_infix_expression::<&str, &str>(
+                    condition,
+                    "x",
+                    |e, l| check_identifier(e, l),
+                    "<",
+                    "y",
+                    |e, r| check_identifier(e, r),
+                )
+            },
+            |BlockStatement { statements }| {
+                assert_eq!(statements.len(), 1);
+                let s = statements.get(0).unwrap();
+                let e = expression_from_statement(s);
+                check_identifier(e, "abc");
+            },
+            None,
+        );
+    }
+
+    #[test]
+    fn test_if_else_expression() {
+        let input = "if (x < y) {arshan} else {arshia} ";
+        setup_lexer_and_parser!(l, p, program, &input);
+        let expression = check_and_extract_program_expression(&program);
+        check_if_else_expression(
+            expression,
+            |condition| {
+                check_infix_expression::<&str, &str>(
+                    condition,
+                    "x",
+                    |e, l| check_identifier(e, l),
+                    "<",
+                    "y",
+                    |e, r| check_identifier(e, r),
+                )
+            },
+            |BlockStatement { statements }| {
+                assert_eq!(statements.len(), 1);
+                let s = statements.get(0).unwrap();
+                let e = expression_from_statement(s);
+                check_identifier(e, "arshan");
+            },
+            None,
+        );
     }
 }

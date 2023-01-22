@@ -87,7 +87,7 @@ pub enum Statement<'a> {
 
 #[derive(Debug)]
 pub struct BlockStatement<'a> {
-    statements: Vec<Statement<'a>>,
+    pub statements: Vec<Statement<'a>>,
 }
 
 impl<'a> ToString for BlockStatement<'a> {
