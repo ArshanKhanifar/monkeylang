@@ -200,12 +200,16 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     }
 
     fn parse_return_statement(&mut self) -> Option<Statement<'b>> {
-        // TODO: we're skipping expression parsing
-        while !self.curr_token_is(TokenType::SEMICOLON) {
+        self.next_token();
+        let expression = self.parse_expression(Lowest);
+        if expression.is_none() {
+            return Some(ReturnStatement { expression: EMPTY });
+        }
+        if self.peek_token_is(SEMICOLON) {
             self.next_token();
         }
         Some(ReturnStatement {
-            return_value: EMPTY,
+            expression: expression.unwrap(),
         })
     }
 
@@ -291,13 +295,20 @@ mod tests {
         }
     }
 
-    fn extract_program_expression<'a>(program: &'a Program<'a>) -> &'a Expression<'a> {
-        check_program_statements_length(&program, 1);
-        let statement = program.statements.get(0).unwrap();
+    fn extract_program_expression<'a>(
+        program: &'a Program<'a>,
+        index: usize,
+    ) -> &'a Expression<'a> {
+        let statement = program.statements.get(index).unwrap();
         match statement {
             ExpressionStatement { expression } => expression,
             _ => panic!("expected ExpressionStatement, got {:#?}", statement),
         }
+    }
+
+    fn check_and_extract_program_expression<'a>(program: &'a Program<'a>) -> &'a Expression<'a> {
+        check_program_statements_length(&program, 1);
+        return extract_program_expression(&program, 0);
     }
 
     #[test]
@@ -319,7 +330,6 @@ let foobar = 838383;";
             } = statement
             {
                 assert_eq!(identifier.literal, *expected_identifier);
-                assert_eq!(*expression, EMPTY);
             } else {
                 panic!("expected LetStatement, got {:#?}", statement);
             }
@@ -344,9 +354,12 @@ return 10;
 return 993322;";
         setup_lexer_and_parser!(l, p, program, &input);
         check_program_statements_length(&program, 3);
-        for (i, statement) in program.statements.iter().enumerate() {
-            if let ReturnStatement { return_value } = statement {
-                assert_eq!(*return_value, EMPTY);
+
+        let values = [5, 10, 993322];
+        for (i, v) in values.iter().enumerate() {
+            let statement = program.statements.get(i).unwrap();
+            if let ReturnStatement { expression } = statement {
+                test_integer_literal(expression, *v);
             } else {
                 panic!("expected ReturnStatement, got {:#?}", statement);
             }
@@ -357,7 +370,7 @@ return 993322;";
     fn test_identifier_expression() {
         let input = "foobar;";
         setup_lexer_and_parser!(l, p, program, &input);
-        let expression = extract_program_expression(&program);
+        let expression = check_and_extract_program_expression(&program);
         test_identifier(expression, "foobar");
     }
 
@@ -365,7 +378,7 @@ return 993322;";
     fn test_integer_literal_expression() {
         let input = "1234;";
         setup_lexer_and_parser!(l, p, program, &input);
-        let expression = extract_program_expression(&program);
+        let expression = check_and_extract_program_expression(&program);
         test_integer_literal(expression, 1234);
     }
 
@@ -383,7 +396,7 @@ return 993322;";
         let prefix_tests = [("!5", "!", "5"), ("-15", "-", "15")];
         for (i, (input, op, literal)) in prefix_tests.iter().enumerate() {
             setup_lexer_and_parser!(l, p, program, &input);
-            let expression = extract_program_expression(&program);
+            let expression = check_and_extract_program_expression(&program);
             test_prefix_expression::<usize>(
                 expression,
                 *op,
@@ -471,7 +484,7 @@ return 993322;";
 
         for (input, l_val, op, r_val) in infix_tests {
             setup_lexer_and_parser!(l, p, program, &input);
-            let expression = extract_program_expression(&program);
+            let expression = check_and_extract_program_expression(&program);
             test_infix_expression::<usize, usize>(
                 expression,
                 l_val,
@@ -484,7 +497,7 @@ return 993322;";
 
         for (input, l_val, op, r_val) in bool_tests {
             setup_lexer_and_parser!(l, p, program, &input);
-            let expression = extract_program_expression(&program);
+            let expression = check_and_extract_program_expression(&program);
             test_infix_expression::<bool, bool>(
                 expression,
                 l_val,

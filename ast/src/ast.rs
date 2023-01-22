@@ -5,7 +5,7 @@ pub trait HasToken {
     fn token_literal(&self) -> &str;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Expression<'a> {
     Identifier(Token<'a>),
     BooleanLiteral(bool),
@@ -22,6 +22,11 @@ pub enum Expression<'a> {
         left: Box<Expression<'a>>,
         right: Box<Expression<'a>>,
     },
+    IfExpression {
+        condition: Box<Expression<'a>>,
+        consequence: BlockStatement<'a>,
+        alternative: Option<BlockStatement<'a>>,
+    },
     EMPTY, // TODO: Look wherever you used this and remove it
 }
 
@@ -33,6 +38,21 @@ impl<'a> ToString for Expression<'a> {
             Expression::IntegerLiteral { token, value } => token.literal.to_string(),
             Expression::PrefixExpression { operator, right } => {
                 format!("({}{})", operator.literal, right.to_string())
+            }
+            Expression::IfExpression {
+                condition,
+                consequence,
+                alternative,
+            } => {
+                let mut s = format!(
+                    "if {} {{{}}}",
+                    condition.to_string(),
+                    consequence.to_string(),
+                );
+                if let Some(alternative) = alternative {
+                    s.push_str(&*format!(" else {{{}}}", alternative.to_string()));
+                }
+                s
             }
             Expression::InfixExpression {
                 operator,
@@ -58,11 +78,26 @@ pub enum Statement<'a> {
         expression: Expression<'a>,
     },
     ReturnStatement {
-        return_value: Expression<'a>,
+        expression: Expression<'a>,
     },
     ExpressionStatement {
         expression: Expression<'a>,
     },
+}
+
+#[derive(Debug)]
+pub struct BlockStatement<'a> {
+    statements: Vec<Statement<'a>>,
+}
+
+impl<'a> ToString for BlockStatement<'a> {
+    fn to_string(&self) -> String {
+        self.statements
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join("")
+    }
 }
 
 impl<'a> ToString for Statement<'a> {
@@ -72,7 +107,7 @@ impl<'a> ToString for Statement<'a> {
                 identifier,
                 expression,
             } => format!("let {} = {};", identifier.literal, expression.to_string()).to_string(),
-            Statement::ReturnStatement { return_value } => {
+            Statement::ReturnStatement { expression: return_value } => {
                 format!("return {};", return_value.to_string()).to_string()
             }
             Statement::ExpressionStatement { expression } => {
