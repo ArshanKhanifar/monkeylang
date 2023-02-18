@@ -81,7 +81,7 @@ impl<'a> ToString for Expression<'a> {
                         .iter()
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
-                        .join(",")
+                        .join(", ")
                 )
             }
             _ => "".to_string(),

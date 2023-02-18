@@ -11,12 +11,12 @@ use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatem
 use monkey_ast::ast::{BlockStatement, Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, ILLEGAL, INT, LBRACE, LPAREN, LT, MINUS,
-    NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
+    ASTERISK, BANG, COMMA, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, ILLEGAL, INT, LBRACE, LPAREN, LT,
+    MINUS, NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
-use crate::parser::Precedence::{Equals, LessGreater, Lowest, Prefix, Product, Sum};
+use crate::parser::Precedence::{Call, Equals, LessGreater, Lowest, Prefix, Product, Sum};
 
 #[derive(PartialOrd, PartialEq)]
 enum Precedence {
@@ -39,6 +39,7 @@ fn precedence_lookup(t: &TokenType) -> Precedence {
         MINUS => Sum,
         SLASH => Product,
         ASTERISK => Product,
+        LPAREN => Call,
         _ => Lowest,
     }
 }
@@ -125,6 +126,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             NOT_EQ => Some(Parser::parse_infix_expression),
             LT => Some(Parser::parse_infix_expression),
             GT => Some(Parser::parse_infix_expression),
+            LPAREN => Some(Parser::parse_call_expression),
             _ => None,
         }
     }
@@ -156,6 +158,35 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             left_exp = infix_fn.unwrap()(self, left_exp);
         }
         Some(left_exp)
+    }
+
+    fn parse_call_expression(&mut self, e: Expression<'b>) -> Expression<'b> {
+        CallExpression {
+            function: Box::new(e),
+            arguments: self.parse_call_arguments(),
+        }
+    }
+
+    fn parse_call_arguments(&mut self) -> Vec<Expression<'b>> {
+        let mut args = Vec::new();
+        if self.peek_token_is(RPAREN) {
+            self.next_token();
+            return args;
+        }
+        self.next_token();
+        args.push(self.parse_expression(Lowest).unwrap());
+
+        while self.peek_token_is(COMMA) {
+            self.next_token();
+            self.next_token();
+            args.push(self.parse_expression(Lowest).unwrap());
+        }
+
+        if !self.expect_peek(RPAREN) {
+            panic!("expected RPAREN");
+        }
+
+        args
     }
 
     fn parse_infix_expression(&mut self, left: Expression<'b>) -> Expression<'b> {
@@ -400,7 +431,12 @@ let foobar = 838383;";
 
     fn check_parser_errors(p: &Parser) {
         let errors = p.errors();
-        assert_eq!(errors.len(), 0, "had parsing errors:\n\t{}", errors.join("\n\t"));
+        assert_eq!(
+            errors.len(),
+            0,
+            "had parsing errors:\n\t{}",
+            errors.join("\n\t")
+        );
     }
 
     #[test]
@@ -595,6 +631,16 @@ return 993322;";
             ("2 / (5 + 5)", "(2 / (5 + 5))"),
             ("-(5 + 5)", "(-(5 + 5))"),
             ("!(true == true)", "(!(true == true))"),
+            // functions
+            ("a + add(b * c) + d", "((a + add((b * c))) + d)"),
+            (
+                "add(a, b, 1, 2 * 3, 4 + 5, add(6, 7 * 8))",
+                "add(a, b, 1, (2 * 3), (4 + 5), add(6, (7 * 8)))",
+            ),
+            (
+                "add(a + b + c * d / f + g)",
+                "add((((a + b) + ((c * d) / f)) + g))",
+            ),
         ];
 
         for (input, expected) in precedence_tests {
@@ -718,7 +764,7 @@ return 993322;";
             check_integer_literal,
         );
         check_infix_expression::<usize, usize>(
-            b,
+            c,
             4,
             check_integer_literal,
             "+",
