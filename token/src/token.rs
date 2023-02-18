@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum TokenType {
     ILLEGAL,
     EOF,
@@ -68,7 +68,7 @@ impl TokenType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct Token<'a> {
     pub token_type: TokenType,
     pub literal: &'a str,

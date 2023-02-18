@@ -4,15 +4,15 @@ use std::hash::Hash;
 use std::iter::Map;
 
 use monkey_ast::ast::Expression::{
-    BooleanLiteral, Identifier, IfExpression, InfixExpression, IntegerLiteral, PrefixExpression,
-    EMPTY,
+    BooleanLiteral, CallExpression, Identifier, IfExpression, InfixExpression, IntegerLiteral,
+    PrefixExpression, EMPTY,
 };
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
 use monkey_ast::ast::{BlockStatement, Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, INT, LBRACE, LPAREN, LT, MINUS, NOT_EQ,
-    PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
+    ASTERISK, BANG, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, ILLEGAL, INT, LBRACE, LPAREN, LT, MINUS,
+    NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
@@ -86,15 +86,15 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     }
 
     fn parse_identifier(&mut self) -> Expression<'b> {
-        Identifier(self.curr_token.take().unwrap())
+        Identifier(self.curr_token.unwrap().clone())
     }
 
     fn parse_boolean(&mut self) -> Expression<'b> {
-        BooleanLiteral(self.curr_token.take().unwrap().literal == "true")
+        BooleanLiteral(self.curr_token.unwrap().clone().literal == "true")
     }
 
     fn parse_integer_literal(&mut self) -> Expression<'b> {
-        let token = self.curr_token.take().unwrap();
+        let token = self.curr_token.unwrap().clone();
         let value = token.literal.to_string().parse::<usize>().unwrap();
         IntegerLiteral { token, value }
     }
@@ -132,8 +132,19 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     fn parse_expression(&mut self, precedence: Precedence) -> Option<Expression<'b>> {
         let prefix_result = self.parse_prefix();
         if prefix_result.is_none() {
-            panic!("No prefix parser found!");
-            // TODO: collect error here instead of panicking.
+            let msg = format!(
+                "No prefix parse function for {} found",
+                self.curr_token
+                    .as_ref()
+                    .unwrap_or(&Token {
+                        literal: "DIDNT FIND",
+                        token_type: ILLEGAL
+                    })
+                    .literal
+                    .to_string()
+            );
+            self.errors.push(msg);
+            return None;
         }
         let mut left_exp = prefix_result.unwrap();
         while !self.peek_token_is(SEMICOLON) && precedence < self.peek_precedence() {
@@ -149,7 +160,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
 
     fn parse_infix_expression(&mut self, left: Expression<'b>) -> Expression<'b> {
         let precedence = self.curr_precedence();
-        let curr_token = self.curr_token.take().unwrap();
+        let curr_token = self.curr_token.unwrap().clone();
         self.next_token();
         InfixExpression {
             left: Box::new(left),
@@ -159,7 +170,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     }
 
     fn create_prefix_expression(&mut self) -> Expression<'b> {
-        let curr_token = self.curr_token.take().unwrap();
+        let curr_token = self.curr_token.unwrap().clone();
         self.next_token();
         PrefixExpression {
             operator: curr_token,
@@ -260,7 +271,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         if !self.expect_peek(TokenType::IDENT) {
             return None;
         }
-        let id_token = self.curr_token.take().unwrap();
+        let id_token = self.curr_token.unwrap().clone();
         if !self.expect_peek(TokenType::ASSIGN) {
             return None;
         }
@@ -288,6 +299,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             self.next_token();
             true
         } else {
+            self.peek_error(t);
             false
         }
     }
@@ -388,12 +400,7 @@ let foobar = 838383;";
 
     fn check_parser_errors(p: &Parser) {
         let errors = p.errors();
-        assert_eq!(
-            errors.len(),
-            0,
-            "had parsing errors: {}",
-            errors.get(0).unwrap()
-        );
+        assert_eq!(errors.len(), 0, "had parsing errors:\n\t{}", errors.join("\n\t"));
     }
 
     #[test]
@@ -409,7 +416,7 @@ return 993322;";
         for (i, v) in values.iter().enumerate() {
             let statement = program.statements.get(i).unwrap();
             if let ReturnStatement { expression } = statement {
-                test_integer_literal(expression, *v);
+                check_integer_literal(expression, *v);
             } else {
                 panic!("expected ReturnStatement, got {:#?}", statement);
             }
@@ -429,7 +436,7 @@ return 993322;";
         let input = "1234;";
         setup_lexer_and_parser!(l, p, program, &input);
         let expression = check_and_extract_program_expression(&program);
-        test_integer_literal(expression, 1234);
+        check_integer_literal(expression, 1234);
     }
 
     fn test_prefix_expression<T>(e: &Expression, op: &str, val: T, tester: fn(&Expression, T)) {
@@ -451,7 +458,7 @@ return 993322;";
                 expression,
                 *op,
                 (*literal).parse::<usize>().unwrap(),
-                test_integer_literal,
+                check_integer_literal,
             );
         }
     }
@@ -497,7 +504,7 @@ return 993322;";
         assert_eq!(*val, value);
     }
 
-    fn test_integer_literal(e: &Expression, value: usize) {
+    fn check_integer_literal(e: &Expression, value: usize) {
         let (
             Token {
                 literal,
@@ -538,10 +545,10 @@ return 993322;";
             check_infix_expression::<usize, usize>(
                 expression,
                 l_val,
-                test_integer_literal,
+                check_integer_literal,
                 op,
                 r_val,
-                test_integer_literal,
+                check_integer_literal,
             );
         }
 
@@ -603,18 +610,20 @@ return 993322;";
         consequence_tester: fn(e: &BlockStatement),
         alternative_tester: Option<fn(e: &BlockStatement)>,
     ) {
-        let (condition, consequence) = match e {
+        let (condition, consequence, alternative) = match e {
             IfExpression {
                 condition,
                 consequence,
                 alternative,
-            } => (condition.as_ref(), consequence),
+            } => (condition.as_ref(), consequence, alternative),
             _ => panic!("expected IfExpression, got {:#?}", e),
         };
         condition_tester(condition);
         consequence_tester(consequence);
         if let Some(alternative_tester) = alternative_tester {
-            alternative_tester;
+            if let Some(alternative) = alternative {
+                alternative_tester(alternative);
+            }
         }
     }
 
@@ -647,7 +656,7 @@ return 993322;";
 
     #[test]
     fn test_if_else_expression() {
-        let input = "if (x < y) {arshan} else {arshia} ";
+        let input = "if (x < y) {arshan} else {arshia;bob} ";
         setup_lexer_and_parser!(l, p, program, &input);
         let expression = check_and_extract_program_expression(&program);
         check_if_else_expression(
@@ -668,7 +677,53 @@ return 993322;";
                 let e = expression_from_statement(s);
                 check_identifier(e, "arshan");
             },
-            None,
+            Some(|BlockStatement { statements }| {
+                assert_eq!(statements.len(), 2);
+                let s = statements.get(0).unwrap();
+                let e = expression_from_statement(s);
+                check_identifier(e, "arshia");
+                let s = statements.get(1).unwrap();
+                let e = expression_from_statement(s);
+                check_identifier(e, "bob");
+            }),
+        );
+    }
+
+    #[test]
+    fn test_call_expression_parsing() {
+        let input = "add(1, 2 * 3, 4 + 5);";
+        setup_lexer_and_parser!(l, p, program, &input);
+        let expression = check_and_extract_program_expression(&program);
+        let (function, arguments) = match expression {
+            CallExpression {
+                function,
+                arguments,
+            } => (function, arguments),
+            _ => panic!("expected CallExpression, got {:#?}", expression),
+        };
+        check_identifier(function.as_ref(), "add");
+        assert_eq!(arguments.len(), 3);
+        let (a, b, c) = (
+            arguments.get(0).unwrap(),
+            arguments.get(1).unwrap(),
+            arguments.get(2).unwrap(),
+        );
+        check_integer_literal(a, 1);
+        check_infix_expression::<usize, usize>(
+            b,
+            2,
+            check_integer_literal,
+            "*",
+            3,
+            check_integer_literal,
+        );
+        check_infix_expression::<usize, usize>(
+            b,
+            4,
+            check_integer_literal,
+            "+",
+            5,
+            check_integer_literal,
         );
     }
 }

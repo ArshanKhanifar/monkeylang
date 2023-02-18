@@ -27,6 +27,10 @@ pub enum Expression<'a> {
         consequence: BlockStatement<'a>,
         alternative: Option<BlockStatement<'a>>,
     },
+    CallExpression {
+        function: Box<Expression<'a>>,
+        arguments: Vec<Expression<'a>>,
+    },
     EMPTY, // TODO: Look wherever you used this and remove it
 }
 
@@ -64,6 +68,20 @@ impl<'a> ToString for Expression<'a> {
                     left.to_string(),
                     operator.literal,
                     right.to_string()
+                )
+            }
+            Expression::CallExpression {
+                function,
+                arguments,
+            } => {
+                format!(
+                    "{}({})",
+                    function.to_string(),
+                    arguments
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",")
                 )
             }
             _ => "".to_string(),
@@ -107,9 +125,9 @@ impl<'a> ToString for Statement<'a> {
                 identifier,
                 expression,
             } => format!("let {} = {};", identifier.literal, expression.to_string()).to_string(),
-            Statement::ReturnStatement { expression: return_value } => {
-                format!("return {};", return_value.to_string()).to_string()
-            }
+            Statement::ReturnStatement {
+                expression: return_value,
+            } => format!("return {};", return_value.to_string()).to_string(),
             Statement::ExpressionStatement { expression } => {
                 format!("{}", expression.to_string()).to_string()
             }
