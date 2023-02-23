@@ -36,7 +36,6 @@ pub enum Expression<'a> {
         function: Box<Expression<'a>>,
         arguments: Vec<Expression<'a>>,
     },
-    EMPTY, // TODO: Look wherever you used this and remove it
 }
 
 impl<'a> ToString for Expression<'a> {
@@ -176,7 +175,7 @@ mod tests {
     use monkey_token::token::Token;
     use monkey_token::token::TokenType::IDENT;
 
-    use crate::ast::Expression::{Identifier, EMPTY};
+    use crate::ast::Expression::{Identifier};
     use crate::ast::Statement::LetStatement;
     use crate::ast::{Program, Statement};
 

@@ -5,7 +5,7 @@ use std::iter::Map;
 
 use monkey_ast::ast::Expression::{
     BooleanLiteral, CallExpression, FunctionLiteral, Identifier, IfExpression, InfixExpression,
-    IntegerLiteral, PrefixExpression, EMPTY,
+    IntegerLiteral, PrefixExpression,
 };
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
 use monkey_ast::ast::{BlockStatement, Expression, Program, Statement};
@@ -68,7 +68,6 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     fn next_token(&mut self) {
         self.curr_token = self.peek_token.take();
         self.peek_token = Some(self.l.next_token());
-        println!("curr token: {}", self.curr_token.unwrap().literal);
     }
 
     fn peek_precedence(&self) -> Precedence {
@@ -175,7 +174,6 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             return None;
         }
         let body = self.parse_block_statement();
-        println!("function parsed! {:#?} {:#?}", parameters, body);
         Some(FunctionLiteral { parameters, body })
     }
 
@@ -328,7 +326,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.next_token();
         let expression = self.parse_expression(Lowest);
         if expression.is_none() {
-            return Some(ReturnStatement { expression: EMPTY });
+            return None;
         }
         if self.peek_token_is(SEMICOLON) {
             self.next_token();
@@ -346,14 +344,18 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         if !self.expect_peek(TokenType::ASSIGN) {
             return None;
         }
+
         // TODO: we're skipping expression parsing
+        self.next_token();
+        let expression = self.parse_expression(Lowest).unwrap();
+
         while !self.curr_token_is(TokenType::SEMICOLON) {
             self.next_token();
         }
 
         Some(LetStatement {
             identifier: id_token,
-            expression: EMPTY,
+            expression,
         })
     }
 
@@ -441,29 +443,26 @@ mod tests {
         return extract_program_expression(&program, 0);
     }
 
-    #[test]
-    fn test_let_statements() {
-        let input = "
-let x = 5;
-let y = 10;
-let foobar = 838383;";
+    fn check_let_expression(input: &str, expected_id: &str, value_tester: fn(&Expression)) {
         setup_lexer_and_parser!(l, p, program, &input);
-        check_program_statements_length(&program, 3);
-        let tests = ["x", "y", "foobar"];
-        for (i, expected_identifier) in tests.iter().enumerate() {
-            let mut statement = program.statements.get(i);
-            assert!(statement.is_some());
-            let statement = statement.unwrap();
-            if let LetStatement {
+        check_program_statements_length(&program, 1);
+        let statement = program.statements.get(0).unwrap();
+        let (ident, expr) = match statement {
+            LetStatement {
                 identifier,
                 expression,
-            } = statement
-            {
-                assert_eq!(identifier.literal, *expected_identifier);
-            } else {
-                panic!("expected LetStatement, got {:#?}", statement);
-            }
-        }
+            } => (identifier, expression),
+            _ => panic!("expected LetStatement, got {:#?}", statement),
+        };
+        assert_eq!(ident.literal, expected_id);
+        value_tester(expr);
+    }
+
+    #[test]
+    fn test_let_comprehensive_statements() {
+        check_let_expression("let x = 5;", "x", |e| check_integer_literal(e, 5));
+        check_let_expression("let y = true;", "y", |e| check_boolean_literal(e, true));
+        check_let_expression("let foobar = y;", "foobar", |e| check_identifier(e, "y"));
     }
 
     fn check_parser_errors(p: &Parser) {
@@ -569,7 +568,7 @@ return 993322;";
         assert_eq!(*literal, value);
     }
 
-    fn test_boolean_literal(e: &Expression, value: bool) {
+    fn check_boolean_literal(e: &Expression, value: bool) {
         let val = match e {
             BooleanLiteral(val) => val,
             _ => panic!("expected BooleanLiteral, got {:#?}", e),
@@ -631,10 +630,10 @@ return 993322;";
             check_infix_expression::<bool, bool>(
                 expression,
                 l_val,
-                test_boolean_literal,
+                check_boolean_literal,
                 op,
                 r_val,
-                test_boolean_literal,
+                check_boolean_literal,
             );
         }
     }
