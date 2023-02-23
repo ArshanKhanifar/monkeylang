@@ -1,5 +1,6 @@
-use monkey_token::token::Token;
 use std::fmt::format;
+
+use monkey_token::token::Token;
 
 pub trait HasToken {
     fn token_literal(&self) -> &str;
@@ -26,6 +27,10 @@ pub enum Expression<'a> {
         condition: Box<Expression<'a>>,
         consequence: BlockStatement<'a>,
         alternative: Option<BlockStatement<'a>>,
+    },
+    FunctionLiteral {
+        parameters: Vec<Token<'a>>,
+        body: BlockStatement<'a>,
     },
     CallExpression {
         function: Box<Expression<'a>>,
@@ -83,6 +88,18 @@ impl<'a> ToString for Expression<'a> {
                         .collect::<Vec<String>>()
                         .join(", ")
                 )
+            }
+            Expression::FunctionLiteral { parameters, body } => {
+                let output = format!(
+                    "fn({}){}",
+                    parameters
+                        .iter()
+                        .map(|t| t.literal.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", "),
+                    body.to_string()
+                );
+                output
             }
             _ => "".to_string(),
         }
@@ -156,11 +173,12 @@ impl<'a> ToString for Program<'a> {
 
 #[cfg(test)]
 mod tests {
+    use monkey_token::token::Token;
+    use monkey_token::token::TokenType::IDENT;
+
     use crate::ast::Expression::{Identifier, EMPTY};
     use crate::ast::Statement::LetStatement;
     use crate::ast::{Program, Statement};
-    use monkey_token::token::Token;
-    use monkey_token::token::TokenType::IDENT;
 
     #[test]
     fn test_let_statements() {

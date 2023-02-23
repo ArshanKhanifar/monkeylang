@@ -4,15 +4,15 @@ use std::hash::Hash;
 use std::iter::Map;
 
 use monkey_ast::ast::Expression::{
-    BooleanLiteral, CallExpression, Identifier, IfExpression, InfixExpression, IntegerLiteral,
-    PrefixExpression, EMPTY,
+    BooleanLiteral, CallExpression, FunctionLiteral, Identifier, IfExpression, InfixExpression,
+    IntegerLiteral, PrefixExpression, EMPTY,
 };
 use monkey_ast::ast::Statement::{ExpressionStatement, LetStatement, ReturnStatement};
 use monkey_ast::ast::{BlockStatement, Expression, Program, Statement};
 use monkey_lexer::lexer::Lexer;
 use monkey_token::token::TokenType::{
-    ASTERISK, BANG, COMMA, ELSE, EOF, EQ, FALSE, GT, IDENT, IF, ILLEGAL, INT, LBRACE, LPAREN, LT,
-    MINUS, NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
+    ASTERISK, BANG, COMMA, ELSE, EOF, EQ, FALSE, FUNCTION, GT, IDENT, IF, ILLEGAL, INT, LBRACE,
+    LPAREN, LT, MINUS, NOT_EQ, PLUS, RBRACE, RPAREN, SEMICOLON, SLASH, TRUE,
 };
 use monkey_token::token::{Token, TokenType};
 
@@ -68,6 +68,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
     fn next_token(&mut self) {
         self.curr_token = self.peek_token.take();
         self.peek_token = Some(self.l.next_token());
+        println!("curr token: {}", self.curr_token.unwrap().literal);
     }
 
     fn peek_precedence(&self) -> Precedence {
@@ -110,13 +111,14 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
             FALSE => Some(self.parse_boolean()),
             LPAREN => self.parse_grouped_expression(),
             IF => self.parse_if_expression(),
+            FUNCTION => self.parse_function_literal(),
             _ => None,
         }
     }
 
     fn get_infix_parse_fn(
         &mut self,
-    ) -> Option<fn(&mut Parser<'a, 'b>, left: Expression<'b>) -> Expression<'b>> {
+    ) -> Option<fn(&mut Parser<'a, 'b>, left: Expression<'b>) -> Option<Expression<'b>>> {
         match self.peek_token.as_ref().unwrap().token_type {
             PLUS => Some(Parser::parse_infix_expression),
             MINUS => Some(Parser::parse_infix_expression),
@@ -155,16 +157,54 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
                 return Some(left_exp);
             }
             self.next_token();
-            left_exp = infix_fn.unwrap()(self, left_exp);
+            let new_exp = infix_fn.unwrap()(self, left_exp);
+            if new_exp.is_none() {
+                return None;
+            }
+            left_exp = new_exp.unwrap();
         }
         Some(left_exp)
     }
 
-    fn parse_call_expression(&mut self, e: Expression<'b>) -> Expression<'b> {
-        CallExpression {
+    fn parse_function_literal(&mut self) -> Option<Expression<'b>> {
+        if !self.expect_peek(LPAREN) {
+            return None;
+        }
+        let parameters = self.parse_function_parameters();
+        if !self.expect_peek(LBRACE) {
+            return None;
+        }
+        let body = self.parse_block_statement();
+        println!("function parsed! {:#?} {:#?}", parameters, body);
+        Some(FunctionLiteral { parameters, body })
+    }
+
+    fn parse_function_parameters(&mut self) -> Vec<Token<'b>> {
+        let mut identifiers = Vec::new();
+        if self.peek_token_is(RPAREN) {
+            self.next_token();
+            return identifiers;
+        }
+        self.next_token();
+        identifiers.push(self.curr_token.unwrap().clone());
+        while self.peek_token_is(COMMA) {
+            self.next_token();
+            self.next_token();
+            identifiers.push(self.curr_token.unwrap().clone());
+        }
+
+        if !self.expect_peek(RPAREN) {
+            return identifiers;
+        }
+
+        identifiers
+    }
+
+    fn parse_call_expression(&mut self, e: Expression<'b>) -> Option<Expression<'b>> {
+        Some(CallExpression {
             function: Box::new(e),
             arguments: self.parse_call_arguments(),
-        }
+        })
     }
 
     fn parse_call_arguments(&mut self) -> Vec<Expression<'b>> {
@@ -189,15 +229,15 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         args
     }
 
-    fn parse_infix_expression(&mut self, left: Expression<'b>) -> Expression<'b> {
+    fn parse_infix_expression(&mut self, left: Expression<'b>) -> Option<Expression<'b>> {
         let precedence = self.curr_precedence();
         let curr_token = self.curr_token.unwrap().clone();
         self.next_token();
-        InfixExpression {
+        Some(InfixExpression {
             left: Box::new(left),
             operator: curr_token,
             right: Box::new(self.parse_expression(precedence).unwrap()),
-        }
+        })
     }
 
     fn create_prefix_expression(&mut self) -> Expression<'b> {
@@ -394,9 +434,6 @@ mod tests {
     ) -> &'a Expression<'a> {
         let statement = program.statements.get(index).unwrap();
         expression_from_statement(statement)
-        //match statement { ExpressionStatement { expression } => expression,
-        //    _ => panic!("expected ExpressionStatement, got {:#?}", statement),
-        //}
     }
 
     fn check_and_extract_program_expression<'a>(program: &'a Program<'a>) -> &'a Expression<'a> {
@@ -733,6 +770,62 @@ return 993322;";
                 check_identifier(e, "bob");
             }),
         );
+    }
+
+    #[test]
+    fn test_function_literal_parsing() {
+        let input = "fn(x, y) { x + y; }";
+
+        setup_lexer_and_parser!(l, p, program, &input);
+        let expression = check_and_extract_program_expression(&program);
+
+        let (params, body) = match expression {
+            FunctionLiteral { parameters, body } => (parameters, body),
+            _ => panic!("expected FunctionLiteral, got {:#?}", expression),
+        };
+
+        assert_eq!(params.len(), 2);
+
+        assert_eq!(params.get(0).unwrap().literal, "x");
+        assert_eq!(params.get(1).unwrap().literal, "y");
+
+        assert_eq!(body.statements.len(), 1);
+
+        let stmnt = body.statements.get(0).unwrap();
+        let expr = match stmnt {
+            ExpressionStatement { expression } => expression,
+            _ => panic!("expected ExpressionStatement, got {:#?}", stmnt),
+        };
+        check_infix_expression::<&str, &str>(
+            expr,
+            "x",
+            |e, l| check_identifier(e, l),
+            "+",
+            "y",
+            |e, r| check_identifier(e, r),
+        )
+    }
+
+    #[test]
+    fn test_function_parameter_parsing() {
+        let tests = [
+            ("fn() {};", [].to_vec()),
+            ("fn(x) {};", ["x"].to_vec()),
+            ("fn(x, y, z) {};", ["x", "y", "z"].to_vec()),
+        ];
+
+        for (input, e_params) in tests {
+            setup_lexer_and_parser!(l, p, program, &input);
+            let expression = check_and_extract_program_expression(&program);
+            let params = match expression {
+                FunctionLiteral { parameters, body } => parameters,
+                _ => panic!("expected FunctionLiteral, got {:#?}", expression),
+            };
+            assert_eq!(e_params.len(), params.len());
+            for (i, p) in params.iter().enumerate() {
+                assert_eq!(&p.literal, e_params.get(i).unwrap());
+            }
+        }
     }
 
     #[test]
