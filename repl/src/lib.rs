@@ -1,9 +1,32 @@
-use monkey_lexer::lexer::Lexer;
-use monkey_token::token::EOF;
 use std::io;
 use std::io::{BufRead, BufReader};
 
+use monkey_lexer::lexer::Lexer;
+use monkey_parser::parser::Parser;
+
 const PROMPT: &str = ">> ";
+
+const MONKEY_FACE: &str = "
+   .--.  .-\"     \"-.  .--.
+  / .. \\/  .-. .-.  \\/ .. \\
+ | |  '|  /   Y   \\  |'  | |
+ | \\   \\  \\ 0 | 0 /  /   / |
+  \\ '- ,\\.-\"\"\"\"\"\"\"-./, -' /
+   ''-' /_   ^ ^   _\\ '-''
+       |  \\._   _./  |
+       \\   \\ '~' /   /
+        '._ '-=-' _.'
+           '-----'
+";
+
+fn print_parse_errors<W: io::Write>(writer: &mut W, errors: &Vec<String>) {
+    write!(writer, "{}", MONKEY_FACE).unwrap();
+    write!(writer, "Whoops! We ran into some monkey business here!\n").unwrap();
+    write!(writer, "\tparser errors:\n").unwrap();
+    for msg in errors {
+        write!(writer, "{}", msg).unwrap();
+    }
+}
 
 pub fn start<R: io::Read, W: io::Write>(reader: R, mut writer: W) {
     write!(writer, "{}", PROMPT).unwrap();
@@ -16,26 +39,20 @@ pub fn start<R: io::Read, W: io::Write>(reader: R, mut writer: W) {
             _ => return,
         };
         println!("scanned line: {scanned}");
-
         let mut l = Lexer::new(scanned.as_str());
-
-        loop {
-            let tok = l.next_token();
-            if tok.token_type == EOF {
-                break;
-            }
-            write!(writer, "{:?}\n", tok).unwrap();
+        let mut p = Parser::new(&mut l);
+        let program = p.parse_program();
+        if p.errors().len() != 0 {
+            print_parse_errors(&mut writer, p.errors());
         }
+        write!(writer, "{}\n", program.to_string());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
+        // just passes! 🎉
     }
 }

@@ -46,7 +46,7 @@ fn precedence_lookup(t: &TokenType) -> Precedence {
 
 type ParseFn<'b, T> = fn(&mut T) -> Expression<'b>;
 
-struct Parser<'a, 'b: 'a> {
+pub struct Parser<'a, 'b: 'a> {
     l: &'a mut Lexer<'b>,
     errors: Vec<String>,
     curr_token: Option<Token<'b>>,
@@ -54,7 +54,7 @@ struct Parser<'a, 'b: 'a> {
 }
 
 impl<'a, 'b: 'a> Parser<'a, 'b> {
-    fn new(l: &'a mut Lexer<'b>) -> Parser<'a, 'b> {
+    pub fn new(l: &'a mut Lexer<'b>) -> Parser<'a, 'b> {
         let curr_token = Some(l.next_token());
         let peek_token = Some(l.next_token());
         Parser {
@@ -349,7 +349,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         self.next_token();
         let expression = self.parse_expression(Lowest).unwrap();
 
-        while !self.curr_token_is(TokenType::SEMICOLON) {
+        if self.peek_token_is(SEMICOLON) {
             self.next_token();
         }
 
@@ -377,7 +377,7 @@ impl<'a, 'b: 'a> Parser<'a, 'b> {
         }
     }
 
-    fn parse_program(&mut self) -> Program<'b> {
+    pub fn parse_program(&mut self) -> Program<'b> {
         let mut program = Program {
             statements: Vec::new(),
         };
